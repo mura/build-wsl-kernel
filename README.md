@@ -5,6 +5,9 @@
 - Docker
 - GNU Make
 - Coreutils
+- curl
+- tar
+- gunzip
 
 ## Support Compiler
 - gcc-9
