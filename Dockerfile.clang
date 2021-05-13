@@ -1,0 +1,44 @@
+FROM debian:buster-slim
+
+RUN set -eux; \
+    \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        wget \
+        ca-certificates \
+        gnupg \
+        flex \
+        bison \
+        libelf-dev \
+        libssl-dev \
+        bc \
+        make \
+        binutils \
+        binutils-i686-linux-gnu \
+        binutils-x86-64-linux-gnu \
+    ; \
+    rm -rf /var/lib/apt/lists/*
+
+ARG CLANG_VER
+RUN set -eux; \
+    \
+    { \
+      echo "deb http://apt.llvm.org/buster/ llvm-toolchain-buster-${CLANG_VER} main"; \
+      echo "deb-src http://apt.llvm.org/buster/ llvm-toolchain-buster-${CLANG_VER} main"; \
+    } | tee /etc/apt/sources.list.d/llvm.list; \
+    wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -; \
+    \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        libllvm${CLANG_VER} \
+        llvm-${CLANG_VER} \
+        llvm-${CLANG_VER}-dev \
+        llvm-${CLANG_VER}-runtime \
+        clang-${CLANG_VER} \
+        clang-tools-${CLANG_VER} \
+        libclang-common-${CLANG_VER}-dev \
+        libclang-${CLANG_VER}-dev \
+        libclang1-${CLANG_VER} \
+        lld-${CLANG_VER} \
+    ; \
+    rm -rf /var/lib/apt/lists/*
