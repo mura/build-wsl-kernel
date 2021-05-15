@@ -8,13 +8,14 @@ SRC_DIR := $(PWD)/kernel
 OUT_DIR := $(PWD)/$(CC)-$(CC_VER)
 OBJ_DIR := $(OUT_DIR)/obj
 WORK_DIR := /usr/src/kernel
-DOCKER_USER := $(shell id -u):$(shell id -g)
-MAKE := docker run --rm \
+DOCKER_OPTS := --rm \
 		-v "$(SRC_DIR):$(WORK_DIR)" \
 		-v "$(OBJ_DIR):/usr/src/output" \
 		-w "$(WORK_DIR)" \
-		-u "$(DOCKER_USER)" \
-		$(CC)-builder:$(CC_VER) make O=../output
+		-u "$(shell id -u):$(shell id -g)"
+DOCKER_IMG := $(CC)-builder:$(CC_VER)
+MAKE_OPTS := O=../output
+MAKE := docker run $(DOCKER_OPTS) $(DOCKER_IMG) make $(MAKE_OPTS)
 
 ifeq (Darwin, $(shell uname))
 NPROC := $(shell getconf _NPROCESSORS_ONLN)
@@ -33,9 +34,9 @@ endif
 VMLINUX := $(OBJ_DIR)/vmlinux
 BZIMAGE := $(OBJ_DIR)/arch/x86/boot/bzImage
 
-.PHONY: all gcc-9 gcc-10 gcc-11 clang-11 clang-12
+.PHONY: all gcc-9 gcc-10 gcc-11 clang-11 clang-12 oldconfig menuconfig kernel modules clean
 
-all: $(KERNEL_ARC) $(SRC_DIR) build-$(CC)-builder oldconfig build
+all: $(KERNEL_ARC) $(SRC_DIR) build-$(CC)-builder oldconfig kernel
 
 gcc-9:
 	@make CC=gcc CC_VER=9
@@ -81,17 +82,30 @@ oldconfig:
 	cp $(SRC_DIR)/Microsoft/config-wsl $(OBJ_DIR)/.config; \
 	$(MAKE) oldconfig
 
+menuconfig:
+	@set -eu; \
+	echo "[$(CC)-$(CC_VER)] make menuconfig"; \
+	mkdir -p $(OBJ_DIR); \
+	cp $(SRC_DIR)/Microsoft/config-wsl $(OBJ_DIR)/.config; \
+	docker run -it $(DOCKER_OPTS) $(DOCKER_IMG) make $(MAKE_OPTS) menuconfig
+
 $(VMLINUX):
 	@echo "[$(CC)-$(CC_VER)] make -j $(NPROC) $(BUILD_OPTS) vmlinux"
 	@$(MAKE) -j $(NPROC) $(BUILD_OPTS) vmlinux
 
 $(BZIMAGE):
 	@echo "[$(CC)-$(CC_VER)] make -j $(NPROC) $(BUILD_OPTS) bzImage"
-	@$(MAKE) -j $(NPROC) $(BUILD_OPTS) bzImage 
+	@$(MAKE) -j $(NPROC) $(BUILD_OPTS) bzImage
 
-build: $(VMLINUX) $(BZIMAGE)
+kernel: $(VMLINUX) $(BZIMAGE)
 	@set -eu; \
 	mkdir -p $(OUT_DIR); \
 	cp -p $(VMLINUX) "$(OUT_DIR)/$(KERNEL).vmlinux"; \
 	cp -p $(BZIMAGE) "$(OUT_DIR)/$(KERNEL).bzImage"
 
+modules:
+	@echo "[$(CC)-$(CC_VER)] make -j $(NPROC) $(BUILD_OPTS) modules"
+	@$(MAKE) -j $(NPROC) $(BUILD_OPTS) modules
+
+clean:
+	@rm -rf $(OUT_DIR)
