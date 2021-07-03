@@ -1,10 +1,11 @@
-CC_VER := 9
+CC_VER := 11
 CC := gcc
-KERNEL := linux-msft-wsl-5.10.16.3
-KERNEL_ARC := $(KERNEL).tar.gz
-KERNEL_URL := https://github.com/microsoft/WSL2-Linux-Kernel/archive/refs/tags/$(KERNEL).tar.gz
+KERNEL_VER 	:= 5.10.43.3
+KERNEL_NAME	:= linux-msft-wsl-$(KERNEL_VER)
+KERNEL_ARC 	:= $(KERNEL_NAME).tar.gz
+KERNEL_URL 	:= https://github.com/microsoft/WSL2-Linux-Kernel/archive/refs/tags/$(KERNEL_ARC)
 PWD := $(shell pwd)
-SRC_DIR := $(PWD)/kernel
+SRC_DIR := $(PWD)/kernel-$(KERNEL_VER)
 OUT_DIR := $(PWD)/$(CC)-$(CC_VER)
 OBJ_DIR := $(OUT_DIR)/obj
 WORK_DIR := /usr/src/kernel
@@ -31,12 +32,12 @@ BUILD_OPTS += CC=clang-$(CC_VER) LD=ld.lld-$(CC_VER) AR=llvm-ar-$(CC_VER) \
 		HOSTCXX=clang++-$(CC_VER) HOSTAR=llvm-ar-$(CC_VER) HOSTLD=ld.lld-$(CC_VER)
 endif
 
-VMLINUX := $(OBJ_DIR)/vmlinux
-BZIMAGE := $(OBJ_DIR)/arch/x86/boot/bzImage
+VMLINUX := $(OUT_DIR)/$(KERNEL_NAME).vmlinux
+BZIMAGE := $(OUT_DIR)/$(KERNEL_NAME).bzImage
 
-.PHONY: all gcc-9 gcc-10 gcc-11 clang-11 clang-12 oldconfig menuconfig kernel modules clean
+.PHONY: all gcc-9 gcc-10 gcc-11 clang-11 clang-12 oldconfig menuconfig kernel modules modules_install clean
 
-all: $(KERNEL_ARC) $(SRC_DIR) build-$(CC)-builder oldconfig kernel
+all: oldconfig kernel
 
 gcc-9:
 	@make CC=gcc CC_VER=9
@@ -55,19 +56,19 @@ clang-12:
 
 $(KERNEL_ARC):
 	@set -eu; \
-	echo "Download $(KERNEL).tar.gz"; \
-	curl -fsSL -o "$(KERNEL).tar.gz" "$(KERNEL)"; \
+	echo "Download $(KERNEL_ARC)"; \
+	curl -fsSL -o "$(KERNEL_ARC)" "$(KERNEL_URL)"; \
 	\
-	if [ -d kernel ]; then \
-		echo "Cleanup $(KERNEL)"; \
+	if [ -d "$(SRC_DIR)" ]; then \
+		echo "Cleanup kernel source"; \
 		rm -rf "$(SRC_DIR)"; \
 	fi
 
-$(SRC_DIR):
+$(SRC_DIR): $(KERNEL_ARC)
 	@set -eu; \
 	echo "Extract kernel source"; \
 	mkdir -p $(SRC_DIR); \
-	tar zxf "$(KERNEL).tar.gz" -C kernel --strip-components=1; \
+	tar zxf "$(KERNEL_ARC)" -C "$(SRC_DIR)" --strip-components=1; \
 
 build-gcc-builder:
 	@docker build . --build-arg GCC_VER=$(CC_VER) -t gcc-builder:$(CC_VER)
@@ -75,14 +76,14 @@ build-gcc-builder:
 build-clang-builder:
 	@docker build . -f Dockerfile.clang --build-arg CLANG_VER=$(CC_VER) -t clang-builder:$(CC_VER)
 
-oldconfig:
+oldconfig: $(SRC_DIR) build-$(CC)-builder
 	@set -eu; \
 	echo "[$(CC)-$(CC_VER)] make oldconfig"; \
 	mkdir -p $(OBJ_DIR); \
 	cp $(SRC_DIR)/Microsoft/config-wsl $(OBJ_DIR)/.config; \
 	$(MAKE) oldconfig
 
-menuconfig:
+menuconfig: $(SRC_DIR) build-$(CC)-builder 
 	@set -eu; \
 	echo "[$(CC)-$(CC_VER)] make menuconfig"; \
 	mkdir -p $(OBJ_DIR); \
@@ -90,22 +91,26 @@ menuconfig:
 	docker run -it $(DOCKER_OPTS) $(DOCKER_IMG) make $(MAKE_OPTS) menuconfig
 
 $(VMLINUX):
-	@echo "[$(CC)-$(CC_VER)] make -j $(NPROC) $(BUILD_OPTS) vmlinux"
-	@$(MAKE) -j $(NPROC) $(BUILD_OPTS) vmlinux
+	@set -eu; \
+	echo "[$(CC)-$(CC_VER)] make -j $(NPROC) $(BUILD_OPTS) vmlinux"; \
+	$(MAKE) -j $(NPROC) $(BUILD_OPTS) vmlinux; \
+	cp -p "$(OBJ_DIR)/vmlinux" "$(VMLINUX)"
 
 $(BZIMAGE):
-	@echo "[$(CC)-$(CC_VER)] make -j $(NPROC) $(BUILD_OPTS) bzImage"
-	@$(MAKE) -j $(NPROC) $(BUILD_OPTS) bzImage
+	@set -eu; \
+	echo "[$(CC)-$(CC_VER)] make -j $(NPROC) $(BUILD_OPTS) bzImage"; \
+	$(MAKE) -j $(NPROC) $(BUILD_OPTS) bzImage; \
+	cp -p "$(OBJ_DIR)/arch/x86/boot/bzImage" "$(BZIMAGE)"
 
 kernel: $(VMLINUX) $(BZIMAGE)
-	@set -eu; \
-	mkdir -p $(OUT_DIR); \
-	cp -p $(VMLINUX) "$(OUT_DIR)/$(KERNEL).vmlinux"; \
-	cp -p $(BZIMAGE) "$(OUT_DIR)/$(KERNEL).bzImage"
 
 modules:
-	@echo "[$(CC)-$(CC_VER)] make -j $(NPROC) $(BUILD_OPTS) modules"
-	@$(MAKE) -j $(NPROC) $(BUILD_OPTS) modules
+	@set -eu; \
+	echo "[$(CC)-$(CC_VER)] make -j $(NPROC) $(BUILD_OPTS) modules"; \
+	$(MAKE) -j $(NPROC) $(BUILD_OPTS) modules
+
+modules_install:
+	@make -C $(SRC_DIR) O=$(OBJ_DIR) modules_install
 
 clean:
 	@rm -rf $(OUT_DIR)
